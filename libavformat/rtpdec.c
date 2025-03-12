@@ -657,6 +657,23 @@ static int rtp_set_prft(RTPDemuxContext *s, AVPacket *pkt, uint32_t timestamp) {
  */
 static void finalize_packet(RTPDemuxContext *s, AVPacket *pkt, uint32_t timestamp)
 {
+    bool synced = false;
+    pkt->timestamp = timestamp;
+
+    /* export private data (timestamps) into AVPacket */
+    if (s->last_rtcp_ntp_time != AV_NOPTS_VALUE && s->last_rtcp_timestamp) {
+        synced = true;
+        pkt->last_rtcp_ntp_time = s->last_rtcp_ntp_time;
+        pkt->last_rtcp_timestamp = s->last_rtcp_timestamp;
+    }
+    else {
+        pkt->last_rtcp_ntp_time = 0;
+        pkt->last_rtcp_timestamp = 0;
+    }
+    
+    pkt->seq = s->seq;
+    pkt->synced = synced;
+
     if (pkt->pts != AV_NOPTS_VALUE || pkt->dts != AV_NOPTS_VALUE)
         return; /* Timestamp already set by depacketizer */
     if (timestamp == RTP_NOTS_VALUE)

@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "config_components.h"
@@ -1251,6 +1252,15 @@ static int parse_packet(AVFormatContext *s, AVPacket *pkt,
         out_pkt->dts          = sti->parser->dts;
         out_pkt->pos          = sti->parser->pos;
         out_pkt->flags       |= pkt->flags & (AV_PKT_FLAG_DISCARD | AV_PKT_FLAG_CORRUPT);
+
+        // copy over needed stuff to out_pkt
+        // which will be appended to a pkt_list and out_pkt will be
+        // reverted to default values
+        out_pkt->synced = pkt->synced;
+        out_pkt->last_rtcp_ntp_time = pkt->last_rtcp_ntp_time;
+        out_pkt->last_rtcp_timestamp = pkt->last_rtcp_timestamp;
+        out_pkt->seq = pkt->seq;
+        out_pkt->timestamp = pkt->timestamp;
 
         if (sti->need_parsing == AVSTREAM_PARSE_FULL_RAW)
             out_pkt->pos = sti->parser->frame_offset;

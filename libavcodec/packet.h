@@ -21,6 +21,7 @@
 #ifndef AVCODEC_PACKET_H
 #define AVCODEC_PACKET_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -557,6 +558,16 @@ typedef struct AVPacket {
     int64_t duration;
 
     int64_t pos;                            ///< byte position in stream, -1 if unknown
+
+    uint32_t timestamp;
+    
+    uint64_t last_rtcp_ntp_time;
+    
+    uint32_t last_rtcp_timestamp;
+    
+    uint16_t seq;
+
+    bool synced;
 
     /**
      * for some private data of the user
