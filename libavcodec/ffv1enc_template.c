@@ -25,7 +25,7 @@
 static av_always_inline int
 RENAME(encode_line)(FFV1Context *f, FFV1SliceContext *sc,
                     void *logctx,
-                    int w, TYPE *sample[3], int plane_index, int bits,
+                    int w, TYPE *const sample[3], int plane_index, int bits,
                     int ac, int pass1)
 {
     PlaneContext *const p = &sc->plane[plane_index];
@@ -34,6 +34,27 @@ RENAME(encode_line)(FFV1Context *f, FFV1SliceContext *sc,
     int run_index = sc->run_index;
     int run_count = 0;
     int run_mode  = 0;
+
+    if (bits == 0)
+        return 0;
+
+    if (sc->slice_coding_mode == 1) {
+        av_assert0(ac != AC_GOLOMB_RICE);
+        if (c->bytestream_end - c->bytestream < (w * bits + 7LL)>>3) {
+            av_log(logctx, AV_LOG_ERROR, "encoded Range Coder frame too large\n");
+            return AVERROR_INVALIDDATA;
+        }
+
+        for (x = 0; x < w; x++) {
+            int i;
+            int v = sample[0][x];
+            for (i = bits-1; i>=0; i--) {
+                uint8_t state = 128;
+                put_rac(c, &state, (v>>i) & 1);
+            }
+        }
+        return 0;
+    }
 
     if (ac != AC_GOLOMB_RICE) {
         if (c->bytestream_end - c->bytestream < w * 35) {
@@ -45,18 +66,6 @@ RENAME(encode_line)(FFV1Context *f, FFV1SliceContext *sc,
             av_log(logctx, AV_LOG_ERROR, "encoded Golomb Rice frame too large\n");
             return AVERROR_INVALIDDATA;
         }
-    }
-
-    if (sc->slice_coding_mode == 1) {
-        for (x = 0; x < w; x++) {
-            int i;
-            int v = sample[0][x];
-            for (i = bits-1; i>=0; i--) {
-                uint8_t state = 128;
-                put_rac(c, &state, (v>>i) & 1);
-            }
-        }
-        return 0;
     }
 
     for (x = 0; x < w; x++) {
@@ -134,7 +143,8 @@ static void RENAME(load_rgb_frame)(FFV1Context *f, FFV1SliceContext *sc,
     int x, y;
     int transparency = f->transparency;
 
-    memset(sc->fltmap, 0, sizeof(sc->fltmap));
+    for (int p = 0; p<3 + transparency; p++)
+        memset(sc->fltmap[p], 0, 65536 * sizeof(**sc->fltmap));
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
@@ -152,9 +162,9 @@ static void RENAME(load_rgb_frame)(FFV1Context *f, FFV1SliceContext *sc,
                 r = *((const uint16_t *)(src[2] + x*2 + stride[2]*y));
             }
 
-            sc->fltmap[0][r] = 1;
-            sc->fltmap[1][g] = 1;
-            sc->fltmap[2][b] = 1;
+            sc->fltmap[0][g] = 1;
+            sc->fltmap[1][b] = 1;
+            sc->fltmap[2][r] = 1;
             if (transparency)
                 sc->fltmap[3][a] = 1;
         }
@@ -171,12 +181,16 @@ static int RENAME(encode_rgb_frame)(FFV1Context *f, FFV1SliceContext *sc,
     const int pass1 = !!(f->avctx->flags & AV_CODEC_FLAG_PASS1);
     int lbd    = f->bits_per_raw_sample <= 8;
     int packed = !src[1];
-    int bits   = f->bits_per_raw_sample > 0 ? f->bits_per_raw_sample : 8;
-    int offset = 1 << bits;
+    int bits[4], offset;
     int transparency = f->transparency;
     int packed_size = (3 + transparency)*2;
 
+    ff_ffv1_compute_bits_per_plane(f, sc, bits, &offset, NULL, f->bits_per_raw_sample);
+
     sc->run_index = 0;
+
+    for (int p = 0; p < MAX_PLANES; ++p)
+        sample[p][2] = RENAME(sc->sample_buffer);
 
     memset(RENAME(sc->sample_buffer), 0, ring_size * MAX_PLANES *
            (w + 6) * sizeof(*RENAME(sc->sample_buffer)));
@@ -214,9 +228,9 @@ static int RENAME(encode_rgb_frame)(FFV1Context *f, FFV1SliceContext *sc,
             }
 
             if (sc->remap) {
-                r = sc->fltmap[0][r];
-                g = sc->fltmap[1][g];
-                b = sc->fltmap[2][b];
+                g = sc->fltmap[0][g];
+                b = sc->fltmap[1][b];
+                r = sc->fltmap[2][r];
                 if (transparency)
                     a = sc->fltmap[3][a];
             }
@@ -238,15 +252,14 @@ static int RENAME(encode_rgb_frame)(FFV1Context *f, FFV1SliceContext *sc,
             int ret;
             sample[p][0][-1] = sample[p][1][0  ];
             sample[p][1][ w] = sample[p][1][w-1];
-            if (lbd && sc->slice_coding_mode == 0)
+            if (bits[p] == 9)
                 ret = RENAME(encode_line)(f, sc, f->avctx, w, sample[p], (p + 1) / 2, 9, ac, pass1);
             else
                 ret = RENAME(encode_line)(f, sc, f->avctx, w, sample[p], (p + 1) / 2,
-                                          bits + (sc->slice_coding_mode != 1), ac, pass1);
+                                          bits[p], ac, pass1);
             if (ret < 0)
                 return ret;
         }
     }
     return 0;
 }
-

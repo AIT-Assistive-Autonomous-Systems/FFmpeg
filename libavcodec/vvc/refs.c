@@ -52,6 +52,12 @@ void ff_vvc_unref_frame(VVCFrameContext *fc, VVCFrame *frame, int flags)
         frame->flags = 0;
     if (!frame->flags) {
         av_frame_unref(frame->frame);
+
+        if (frame->needs_fg) {
+            av_frame_unref(frame->frame_grain);
+            frame->needs_fg = 0;
+        }
+
         av_refstruct_unref(&frame->sps);
         av_refstruct_unref(&frame->pps);
         av_refstruct_unref(&frame->progress);
@@ -127,6 +133,15 @@ static VVCFrame *alloc_frame(VVCContext *s, VVCFrameContext *fc)
         frame->sps = av_refstruct_ref_c(fc->ps.sps);
         frame->pps = av_refstruct_ref_c(fc->ps.pps);
 
+        // Add LCEVC SEI metadata here, as it's needed in get_buffer()
+        if (fc->sei.common.lcevc.info) {
+            HEVCSEILCEVC *lcevc = &fc->sei.common.lcevc;
+            ret = ff_frame_new_side_data_from_buf(s->avctx, frame->frame,
+                                                  AV_FRAME_DATA_LCEVC, &lcevc->info);
+            if (ret < 0)
+                goto fail;
+        }
+
         ret = ff_thread_get_buffer(s->avctx, frame->frame, AV_GET_BUFFER_FLAG_REF);
         if (ret < 0)
             return NULL;
@@ -153,6 +168,14 @@ static VVCFrame *alloc_frame(VVCContext *s, VVCFrameContext *fc)
         win->bottom_offset = pps->r->pps_scaling_win_bottom_offset * (1 << sps->vshift[CHROMA]);
         frame->ref_width   = pps->r->pps_pic_width_in_luma_samples  - win->left_offset   - win->right_offset;
         frame->ref_height  = pps->r->pps_pic_height_in_luma_samples - win->bottom_offset - win->top_offset;
+
+        if (fc->sei.frame_field_info.present) {
+            if (fc->sei.frame_field_info.picture_struct == AV_PICTURE_STRUCTURE_TOP_FIELD)
+                frame->frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
+            if (fc->sei.frame_field_info.picture_struct == AV_PICTURE_STRUCTURE_TOP_FIELD ||
+                fc->sei.frame_field_info.picture_struct == AV_PICTURE_STRUCTURE_BOTTOM_FIELD)
+                frame->frame->flags |= AV_FRAME_FLAG_INTERLACED;
+        }
 
         frame->progress = alloc_progress();
         if (!frame->progress)
@@ -285,11 +308,16 @@ int ff_vvc_output_frame(VVCContext *s, VVCFrameContext *fc, AVFrame *out, const 
             if (frame->flags & VVC_FRAME_FLAG_CORRUPT)
                 frame->frame->flags |= AV_FRAME_FLAG_CORRUPT;
 
-            ret = av_frame_ref(out, frame->frame);
+            ret = av_frame_ref(out, frame->needs_fg ? frame->frame_grain : frame->frame);
+
+            if (!ret && !(s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_FILM_GRAIN))
+                av_frame_remove_side_data(out, AV_FRAME_DATA_FILM_GRAIN_PARAMS);
+
             if (frame->flags & VVC_FRAME_FLAG_BUMPING)
                 ff_vvc_unref_frame(fc, frame, VVC_FRAME_FLAG_OUTPUT | VVC_FRAME_FLAG_BUMPING);
             else
                 ff_vvc_unref_frame(fc, frame, VVC_FRAME_FLAG_OUTPUT);
+
             if (ret < 0)
                 return ret;
 
@@ -431,7 +459,8 @@ static int add_candidate_ref(VVCContext *s, VVCFrameContext *fc, RefPicList *lis
 
     if (!IS_CVSS(s)) {
         const bool ref_corrupt = !ref || (ref->flags & VVC_FRAME_FLAG_CORRUPT);
-        const bool recovering  = s->no_output_before_recovery_flag && !GDR_IS_RECOVERED(s);
+        const bool recovering  = s->no_output_before_recovery_flag &&
+            (IS_RASL(s) || !GDR_IS_RECOVERED(s));
 
         if (ref_corrupt && !recovering) {
             if (!(s->avctx->flags & AV_CODEC_FLAG_OUTPUT_CORRUPT) &&

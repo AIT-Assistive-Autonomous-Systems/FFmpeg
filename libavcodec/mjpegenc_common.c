@@ -145,7 +145,7 @@ int ff_mjpeg_add_icc_profile_size(AVCodecContext *avctx, const AVFrame *frame,
         return 0;
 
     if (sd->size > ICC_MAX_CHUNKS * ICC_CHUNK_SIZE) {
-        av_log(avctx, AV_LOG_ERROR, "Cannot store %"SIZE_SPECIFIER" byte ICC "
+        av_log(avctx, AV_LOG_ERROR, "Cannot store %zu byte ICC "
                "profile: too large for JPEG\n",
                sd->size);
         return AVERROR_INVALIDDATA;
@@ -304,7 +304,8 @@ void ff_mjpeg_encode_picture_header(AVCodecContext *avctx, PutBitContext *pb,
     switch (avctx->codec_id) {
     case AV_CODEC_ID_MJPEG:  put_marker(pb, SOF0 ); break;
     case AV_CODEC_ID_LJPEG:  put_marker(pb, SOF3 ); break;
-    default: av_assert0(0);
+    default: av_unreachable("ff_mjpeg_encode_picture_header only called by "
+                            "AMV, LJPEG, MJPEG and the former has been ruled out");
     }
 
     put_bits(pb, 16, 8 + 3 * components);
@@ -375,7 +376,7 @@ void ff_mjpeg_encode_picture_header(AVCodecContext *avctx, PutBitContext *pb,
     switch (avctx->codec_id) {
     case AV_CODEC_ID_MJPEG:  put_bits(pb, 8, 63); break; /* Se (not used) */
     case AV_CODEC_ID_LJPEG:  put_bits(pb, 8,  0); break; /* not used */
-    default: av_assert0(0);
+    default: av_unreachable("Only LJPEG, MJPEG possible here");
     }
 
     put_bits(pb, 8, 0); /* Ah/Al (not used) */

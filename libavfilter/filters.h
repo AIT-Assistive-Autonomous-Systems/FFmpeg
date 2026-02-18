@@ -26,11 +26,13 @@
  */
 
 #include "avfilter.h"
+#include "libavutil/pixfmt.h"
 
 /**
  * Special return code when activate() did not do anything.
  */
 #define FFERROR_NOT_READY FFERRTAG('N','R','D','Y')
+#define FFERROR_BUFFERSRC_EMPTY FFERRTAG('M','P','T','Y')
 
 /**
  * A filter pad used for either input or output.
@@ -507,7 +509,7 @@ int ff_inlink_check_available_frame(AVFilterLink *link);
 
 /***
   * Get the number of samples available on the link.
-  * @return the numer of samples available on the link.
+  * @return the number of samples available on the link.
   */
 int ff_inlink_queued_samples(AVFilterLink *link);
 
@@ -697,6 +699,19 @@ static inline void ff_outlink_set_status(AVFilterLink *link, int status, int64_t
 } while (0)
 
 /**
+ * Forward the frame_wanted_out flag from any of the output links to an input link.
+ * If the flag is set on any of the outputs, this macro will return immediately.
+ */
+#define FF_FILTER_FORWARD_WANTED_ANY(filter, inlink) do { \
+    for (unsigned i = 0; i < filter->nb_outputs; i++) { \
+        if (ff_outlink_frame_wanted(filter->outputs[i])) { \
+            ff_inlink_request_frame(inlink); \
+            return 0; \
+        } \
+    } \
+} while (0)
+
+/**
  * Check for flow control between input and output.
  * This is necessary for filters that may produce several output frames for
  * a single input event, otherwise they may produce them all at once,
@@ -793,15 +808,13 @@ int ff_append_inpad_free_name (AVFilterContext *f, AVFilterPad *p);
 int ff_append_outpad_free_name(AVFilterContext *f, AVFilterPad *p);
 
 /**
- * Tell if an integer is contained in the provided -1-terminated list of integers.
- * This is useful for determining (for instance) if an AVPixelFormat is in an
- * array of supported formats.
+ * Tell if a pixel format is contained in the provided AV_PIX_FMT_NONE-terminated list.
  *
  * @param fmt provided format
- * @param fmts -1-terminated list of formats
+ * @param fmts AV_PIX_FMT_NONE-terminated list of pixel formats
  * @return 1 if present, 0 if absent
  */
-int ff_fmt_is_in(int fmt, const int *fmts);
+int ff_pixfmt_is_in(enum AVPixelFormat fmt, const enum AVPixelFormat *fmts);
 
 int ff_filter_execute(AVFilterContext *ctx, avfilter_action_func *func,
                       void *arg, int *ret, int nb_jobs);

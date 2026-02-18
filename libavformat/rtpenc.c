@@ -89,6 +89,7 @@ static int is_supported(enum AVCodecID id)
     case AV_CODEC_ID_OPUS:
     case AV_CODEC_ID_RAWVIDEO:
     case AV_CODEC_ID_BITPACKED:
+    case AV_CODEC_ID_G728:
         return 1;
     default:
         return 0;
@@ -217,6 +218,14 @@ static int rtp_write_header(AVFormatContext *s1)
          * libavcodec/hevc.c). */
         if (st->codecpar->extradata_size > 21 && st->codecpar->extradata[0] == 1) {
             s->nal_length_size = (st->codecpar->extradata[21] & 0x03) + 1;
+        }
+        break;
+    case AV_CODEC_ID_MJPEG:
+    case AV_CODEC_ID_BITPACKED:
+    case AV_CODEC_ID_RAWVIDEO:
+        if (st->codecpar->width <= 0 || st->codecpar->height <= 0) {
+            av_log(s1, AV_LOG_ERROR, "dimensions not set\n");
+            return AVERROR(EINVAL);
         }
         break;
     case AV_CODEC_ID_VP9:
@@ -670,9 +679,15 @@ static int rtp_write_trailer(AVFormatContext *s1)
      * be NULL here even if it was successfully allocated at the start. */
     if (s1->pb && (s->flags & FF_RTP_FLAG_SEND_BYE))
         rtcp_send_sr(s1, ff_ntp_time(), 1);
-    av_freep(&s->buf);
 
     return 0;
+}
+
+static void rtp_deinit(AVFormatContext *s1)
+{
+    RTPMuxContext *s = s1->priv_data;
+
+    av_freep(&s->buf);
 }
 
 const FFOutputFormat ff_rtp_muxer = {
@@ -684,6 +699,7 @@ const FFOutputFormat ff_rtp_muxer = {
     .write_header      = rtp_write_header,
     .write_packet      = rtp_write_packet,
     .write_trailer     = rtp_write_trailer,
+    .deinit            = rtp_deinit,
     .p.priv_class      = &rtp_muxer_class,
-    .p.flags           = AVFMT_TS_NONSTRICT,
+    .p.flags           = AVFMT_NODIMENSIONS | AVFMT_TS_NONSTRICT,
 };

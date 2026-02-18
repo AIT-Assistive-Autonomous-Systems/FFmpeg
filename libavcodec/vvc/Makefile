@@ -14,5 +14,5 @@ OBJS-$(CONFIG_VVC_DECODER)          +=  vvc/dec.o           \
                                         vvc/mvs.o           \
                                         vvc/ps.o            \
                                         vvc/refs.o          \
+                                        vvc/sei.o           \
                                         vvc/thread.o        \
-                                        h2645data.o         \

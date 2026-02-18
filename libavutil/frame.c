@@ -19,12 +19,11 @@
 #include "channel_layout.h"
 #include "avassert.h"
 #include "buffer.h"
-#include "common.h"
-#include "cpu.h"
 #include "dict.h"
 #include "frame.h"
 #include "imgutils.h"
 #include "mem.h"
+#include "refstruct.h"
 #include "samplefmt.h"
 #include "side_data.h"
 #include "hwcontext.h"
@@ -37,12 +36,6 @@ static void get_frame_defaults(AVFrame *frame)
     frame->pkt_dts               = AV_NOPTS_VALUE;
     frame->best_effort_timestamp = AV_NOPTS_VALUE;
     frame->duration            = 0;
-#if FF_API_FRAME_PKT
-FF_DISABLE_DEPRECATION_WARNINGS
-    frame->pkt_pos             = -1;
-    frame->pkt_size            = -1;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     frame->time_base           = (AVRational){ 0, 1 };
     frame->sample_aspect_ratio = (AVRational){ 0, 1 };
     frame->format              = -1; /* unknown */
@@ -52,6 +45,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     frame->colorspace          = AVCOL_SPC_UNSPECIFIED;
     frame->color_range         = AVCOL_RANGE_UNSPECIFIED;
     frame->chroma_location     = AVCHROMA_LOC_UNSPECIFIED;
+    frame->alpha_mode          = AVALPHA_MODE_UNSPECIFIED;
     frame->flags               = 0;
 }
 
@@ -225,13 +219,6 @@ int av_frame_get_buffer(AVFrame *frame, int align)
 
 static int frame_copy_props(AVFrame *dst, const AVFrame *src, int force_copy)
 {
-    int ret;
-
-#if FF_API_FRAME_KEY
-FF_DISABLE_DEPRECATION_WARNINGS
-    dst->key_frame              = src->key_frame;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     dst->pict_type              = src->pict_type;
     dst->sample_aspect_ratio    = src->sample_aspect_ratio;
     dst->crop_top               = src->crop_top;
@@ -241,26 +228,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
     dst->pts                    = src->pts;
     dst->duration               = src->duration;
     dst->repeat_pict            = src->repeat_pict;
-#if FF_API_INTERLACED_FRAME
-FF_DISABLE_DEPRECATION_WARNINGS
-    dst->interlaced_frame       = src->interlaced_frame;
-    dst->top_field_first        = src->top_field_first;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
-#if FF_API_PALETTE_HAS_CHANGED
-FF_DISABLE_DEPRECATION_WARNINGS
-    dst->palette_has_changed    = src->palette_has_changed;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     dst->sample_rate            = src->sample_rate;
     dst->opaque                 = src->opaque;
     dst->pkt_dts                = src->pkt_dts;
-#if FF_API_FRAME_PKT
-FF_DISABLE_DEPRECATION_WARNINGS
-    dst->pkt_pos                = src->pkt_pos;
-    dst->pkt_size               = src->pkt_size;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     dst->time_base              = src->time_base;
     dst->quality                = src->quality;
     dst->best_effort_timestamp  = src->best_effort_timestamp;
@@ -271,6 +241,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     dst->colorspace             = src->colorspace;
     dst->color_range            = src->color_range;
     dst->chroma_location        = src->chroma_location;
+    dst->alpha_mode             = src->alpha_mode;
 
     av_dict_copy(&dst->metadata, src->metadata, 0);
 
@@ -300,9 +271,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
         av_dict_copy(&sd_dst->metadata, sd_src->metadata, 0);
     }
 
-    ret = av_buffer_replace(&dst->opaque_ref, src->opaque_ref);
-    ret |= av_buffer_replace(&dst->private_ref, src->private_ref);
-    return ret;
+    av_refstruct_replace(&dst->private_ref, src->private_ref);
+    return av_buffer_replace(&dst->opaque_ref, src->opaque_ref);
 }
 
 int av_frame_ref(AVFrame *dst, const AVFrame *src)
@@ -380,17 +350,16 @@ int av_frame_ref(AVFrame *dst, const AVFrame *src)
     if (src->extended_data != src->data) {
         int ch = dst->ch_layout.nb_channels;
 
-        if (!ch) {
+        if (ch <= 0 || ch > SIZE_MAX / sizeof(*dst->extended_data)) {
             ret = AVERROR(EINVAL);
             goto fail;
         }
 
-        dst->extended_data = av_malloc_array(sizeof(*dst->extended_data), ch);
+        dst->extended_data = av_memdup(src->extended_data, sizeof(*dst->extended_data) * ch);
         if (!dst->extended_data) {
             ret = AVERROR(ENOMEM);
             goto fail;
         }
-        memcpy(dst->extended_data, src->extended_data, sizeof(*src->extended_data) * ch);
     } else
         dst->extended_data = dst->data;
 
@@ -454,8 +423,8 @@ int av_frame_replace(AVFrame *dst, const AVFrame *src)
             for (int i = nb_extended_buf; i < dst->nb_extended_buf; i++)
                 av_buffer_unref(&dst->extended_buf[i]);
 
-            tmp = av_realloc_array(dst->extended_buf, sizeof(*dst->extended_buf),
-                                   src->nb_extended_buf);
+            tmp = av_realloc_array(dst->extended_buf, src->nb_extended_buf,
+                                   sizeof(*dst->extended_buf));
             if (!tmp) {
                 ret = AVERROR(ENOMEM);
                 goto fail;
@@ -488,13 +457,10 @@ int av_frame_replace(AVFrame *dst, const AVFrame *src)
     if (src->extended_data != src->data) {
         int ch = dst->ch_layout.nb_channels;
 
-        if (!ch) {
+        if (ch <= 0 || ch > SIZE_MAX / sizeof(*dst->extended_data)) {
             ret = AVERROR(EINVAL);
             goto fail;
         }
-
-        if (ch > SIZE_MAX / sizeof(*dst->extended_data))
-            goto fail;
 
         dst->extended_data = av_memdup(src->extended_data, sizeof(*dst->extended_data) * ch);
         if (!dst->extended_data) {
@@ -544,7 +510,7 @@ void av_frame_unref(AVFrame *frame)
     av_buffer_unref(&frame->hw_frames_ctx);
 
     av_buffer_unref(&frame->opaque_ref);
-    av_buffer_unref(&frame->private_ref);
+    av_refstruct_unref(&frame->private_ref);
 
     if (frame->extended_data != frame->data)
         av_freep(&frame->extended_data);

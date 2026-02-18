@@ -27,6 +27,7 @@
  * Known FOURCCs: 'ap4h' (444), 'apch' (HQ), 'apcn' (422), 'apcs' (LT), 'acpo' (Proxy)
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/opt.h"
@@ -396,14 +397,12 @@ static av_always_inline unsigned encode_slice_data(AVCodecContext *avctx,
     *y_data_size = encode_slice_plane(blocks_y, mb_count,
                                       buf, data_size, ctx->qmat_luma[qp - 1], 0, ctx->scantable);
 
-    if (!(avctx->flags & AV_CODEC_FLAG_GRAY)) {
-        *u_data_size = encode_slice_plane(blocks_u, mb_count, buf + *y_data_size, data_size - *y_data_size,
-                                          ctx->qmat_chroma[qp - 1], ctx->is_422, ctx->scantable);
+    *u_data_size = encode_slice_plane(blocks_u, mb_count, buf + *y_data_size, data_size - *y_data_size,
+                                      ctx->qmat_chroma[qp - 1], ctx->is_422, ctx->scantable);
 
-        *v_data_size = encode_slice_plane(blocks_v, mb_count, buf + *y_data_size + *u_data_size,
-                                          data_size - *y_data_size - *u_data_size,
-                                          ctx->qmat_chroma[qp - 1], ctx->is_422, ctx->scantable);
-    }
+    *v_data_size = encode_slice_plane(blocks_v, mb_count, buf + *y_data_size + *u_data_size,
+                                      data_size - *y_data_size - *u_data_size,
+                                      ctx->qmat_chroma[qp - 1], ctx->is_422, ctx->scantable);
 
     return *y_data_size + *u_data_size + *v_data_size;
 }
@@ -845,20 +844,25 @@ static av_cold int prores_encode_init(AVCodecContext *avctx)
     }
 
     if (avctx->profile == AV_PROFILE_UNKNOWN) {
-        if (avctx->pix_fmt == AV_PIX_FMT_YUV422P10) {
+        switch (avctx->pix_fmt) {
+        case AV_PIX_FMT_YUV422P10:
             avctx->profile = AV_PROFILE_PRORES_STANDARD;
             av_log(avctx, AV_LOG_INFO,
                 "encoding with ProRes standard (apcn) profile\n");
-        } else if (avctx->pix_fmt == AV_PIX_FMT_YUV444P10) {
+            break;
+        case AV_PIX_FMT_YUV444P10:
             avctx->profile = AV_PROFILE_PRORES_4444;
             av_log(avctx, AV_LOG_INFO,
                    "encoding with ProRes 4444 (ap4h) profile\n");
-        } else if (avctx->pix_fmt == AV_PIX_FMT_YUVA444P10) {
+            break;
+        case AV_PIX_FMT_YUVA444P10:
             avctx->profile = AV_PROFILE_PRORES_4444;
             av_log(avctx, AV_LOG_INFO,
                    "encoding with ProRes 4444+ (ap4h) profile\n");
-        } else
-            av_assert0(0);
+            break;
+        default:
+            av_unreachable("Already checked via CODEC_PIXFMTS");
+        }
     } else if (avctx->profile < AV_PROFILE_PRORES_PROXY
             || avctx->profile > AV_PROFILE_PRORES_XQ) {
         av_log(

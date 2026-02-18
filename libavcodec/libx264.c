@@ -22,7 +22,6 @@
 #include "config_components.h"
 
 #include "libavutil/buffer.h"
-#include "libavutil/eval.h"
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/mastering_display_metadata.h"
@@ -30,7 +29,6 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/stereo3d.h"
 #include "libavutil/time.h"
-#include "libavutil/intreadwrite.h"
 #include "libavutil/video_hint.h"
 #include "avcodec.h"
 #include "codec_internal.h"
@@ -615,7 +613,7 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     x264_nal_t *nal;
     int nnal, ret;
     x264_picture_t pic_out = {0}, *pic_in;
-    int pict_type;
+    enum AVPictureType pict_type;
     int64_t wallclock = 0;
     X264Opaque *out_opaque;
 
@@ -730,8 +728,8 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
             errors = sse;
         }
 
-        ff_side_data_set_encoder_stats(pkt, (pic_out.i_qpplus1 - 1) * FF_QP2LAMBDA,
-                                       errors, error_count, pict_type);
+        ff_encode_add_stats_side_data(pkt, (pic_out.i_qpplus1 - 1) * FF_QP2LAMBDA,
+                                      errors, error_count, pict_type);
 
         if (wallclock)
             ff_side_data_set_prft(pkt, wallclock);
@@ -1317,13 +1315,7 @@ static av_cold int X264_init(AVCodecContext *avctx)
         x4->params.i_fps_den = avctx->framerate.den;
     } else {
         x4->params.i_fps_num = avctx->time_base.den;
-FF_DISABLE_DEPRECATION_WARNINGS
-        x4->params.i_fps_den = avctx->time_base.num
-#if FF_API_TICKS_PER_FRAME
-            * avctx->ticks_per_frame
-#endif
-            ;
-FF_ENABLE_DEPRECATION_WARNINGS
+        x4->params.i_fps_den = avctx->time_base.num;
     }
 
     x4->params.analyse.b_psnr = avctx->flags & AV_CODEC_FLAG_PSNR;

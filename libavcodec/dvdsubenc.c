@@ -411,7 +411,7 @@ static int dvdsub_encode(AVCodecContext *avctx,
     qq = outbuf;
     bytestream_put_be16(&qq, q - outbuf);
 
-    av_log(NULL, AV_LOG_DEBUG, "subtitle_packet size=%"PTRDIFF_SPECIFIER"\n", q - outbuf);
+    av_log(NULL, AV_LOG_DEBUG, "subtitle_packet size=%td\n", q - outbuf);
     ret = q - outbuf;
 
 fail:
@@ -442,7 +442,7 @@ static int bprint_to_extradata(AVCodecContext *avctx, struct AVBPrint *buf)
     return 0;
 }
 
-static int dvdsub_init(AVCodecContext *avctx)
+static av_cold int dvdsub_init(AVCodecContext *avctx)
 {
     DVDSubtitleContext *dvdc = avctx->priv_data;
     static const uint32_t default_palette[16] = {

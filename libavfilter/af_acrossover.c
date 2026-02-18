@@ -138,7 +138,7 @@ static int query_formats(const AVFilterContext *ctx,
     default:
         break;
     }
-    ret = ff_set_common_formats_from_list2(ctx, cfg_in, cfg_out, sample_fmts_list);
+    ret = ff_set_sample_formats_from_list2(ctx, cfg_in, cfg_out, sample_fmts_list);
     if (ret < 0)
         return ret;
 
@@ -588,15 +588,7 @@ static int activate(AVFilterContext *ctx)
         return 0;
     }
 
-    for (int i = 0; i < ctx->nb_outputs; i++) {
-        if (ff_outlink_get_status(ctx->outputs[i]))
-            continue;
-
-        if (ff_outlink_frame_wanted(ctx->outputs[i])) {
-            ff_inlink_request_frame(inlink);
-            return 0;
-        }
-    }
+    FF_FILTER_FORWARD_WANTED_ANY(ctx, inlink);
 
     return FFERROR_NOT_READY;
 }

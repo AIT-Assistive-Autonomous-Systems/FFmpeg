@@ -199,7 +199,7 @@ static av_cold void dcaenc_init_static_tables(void)
         create_enc_table(&bitalloc_12_table[i][1], 12, &src_table);
 }
 
-static int encode_init(AVCodecContext *avctx)
+static av_cold int encode_init(AVCodecContext *avctx)
 {
     static AVOnce init_static_once = AV_ONCE_INIT;
     DCAEncContext *c = avctx->priv_data;
@@ -854,7 +854,7 @@ static int init_quantization_noise(DCAEncContext *c, int noise, int forbid_zero)
     if (c->lfe_channel)
         c->consumed_bits += 72;
 
-    /* attempt to guess the bit distribution based on the prevoius frame */
+    /* attempt to guess the bit distribution based on the previous frame */
     for (ch = 0; ch < c->fullband_channels; ch++) {
         for (band = 0; band < 32; band++) {
             int snr_cb = c->peak_cb[ch][band] - c->band_masking_cb[band] - noise;

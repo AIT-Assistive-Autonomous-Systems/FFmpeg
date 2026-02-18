@@ -235,7 +235,7 @@ static int extradata2psets(AVFormatContext *s, const AVCodecParameters *par,
             sps_end = r1;
         }
         if (!av_base64_encode(p, MAX_PSET_SIZE - (p - psets), r, r1 - r)) {
-            av_log(s, AV_LOG_ERROR, "Cannot Base64-encode %"PTRDIFF_SPECIFIER" %"PTRDIFF_SPECIFIER"!\n",
+            av_log(s, AV_LOG_ERROR, "Cannot Base64-encode %td %td!\n",
                    MAX_PSET_SIZE - (p - psets), r1 - r);
 fail_in_loop:
             av_free(psets);
@@ -866,6 +866,9 @@ int ff_sdp_write_media(char *buff, int size, const AVStream *st, int idx,
     sdp_write_address(buff, size, dest_addr, dest_type, ttl);
     if (p->bit_rate) {
         av_strlcatf(buff, size, "b=AS:%"PRId64"\r\n", p->bit_rate / 1000);
+    }
+    if (p->framerate.num > 0 && p->framerate.den > 0) {
+        av_strlcatf(buff, size, "a=framerate:%g\r\n", av_q2d(p->framerate));
     }
 
     return sdp_write_media_attributes(buff, size, st, payload_type, fmt);

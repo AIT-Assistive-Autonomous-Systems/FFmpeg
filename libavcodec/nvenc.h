@@ -61,6 +61,7 @@ typedef void ID3D11Device;
 #define NVENC_HAVE_MULTIPLE_REF_FRAMES
 #define NVENC_HAVE_CUSTREAM_PTR
 #define NVENC_HAVE_GETLASTERRORSTRING
+#define NVENC_HAVE_FILLER_DATA
 #endif
 
 // SDK 10.0 compile time feature checks
@@ -103,9 +104,11 @@ typedef void ID3D11Device;
 #if NVENCAPI_CHECK_VERSION(13, 0)
 #define NVENC_HAVE_H264_10BIT_SUPPORT
 #define NVENC_HAVE_422_SUPPORT
+#define NVENC_HAVE_SFE_FOUR_WAYS_SUPPORT
 #define NVENC_HAVE_AV1_UHQ_TUNING
 #define NVENC_HAVE_H264_AND_AV1_TEMPORAL_FILTER
 #define NVENC_HAVE_HEVC_AND_AV1_MASTERING_METADATA
+#define NVENC_HAVE_MVHEVC
 #endif
 
 typedef struct NvencSurface
@@ -179,6 +182,11 @@ enum {
     NV_ENC_HEVC_PROFILE_MAIN,
     NV_ENC_HEVC_PROFILE_MAIN_10,
     NV_ENC_HEVC_PROFILE_REXT,
+#ifdef NVENC_HAVE_MVHEVC
+    NV_ENC_HEVC_PROFILE_MULTIVIEW_MAIN,
+#endif
+
+    NV_ENC_HEVC_PROFILE_COUNT
 };
 
 enum {
@@ -252,6 +260,7 @@ typedef struct NvencContext
     void *nvencoder;
 
     uint32_t frame_idx_counter;
+    uint32_t next_view_id;
 
     int preset;
     int profile;
@@ -309,6 +318,9 @@ typedef struct NvencContext
     int unidir_b;
     int split_encode_mode;
     int mdm, cll;
+    int cbr_padding;
+    int multiview, multiview_supported;
+    int display_sei_sent;
 } NvencContext;
 
 int ff_nvenc_encode_init(AVCodecContext *avctx);

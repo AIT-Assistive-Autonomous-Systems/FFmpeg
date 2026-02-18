@@ -25,7 +25,7 @@ crop_top=0
 crop_bottom=0
 crop_left=0
 crop_right=0
-pix_fmt=yuv420p10le
+pix_fmt=yuv420p10
 sample_aspect_ratio=N/A
 pict_type=I
 interlaced_frame=0
@@ -37,6 +37,7 @@ color_space=bt2020nc
 color_primaries=bt2020
 color_transfer=smpte2084
 chroma_location=left
+alpha_mode=unspecified
 [SIDE_DATA]
 side_data_type=Mastering display metadata
 red_x=13250/50000

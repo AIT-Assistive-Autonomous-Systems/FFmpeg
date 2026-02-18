@@ -76,7 +76,9 @@ typedef struct OGGPageList {
 typedef struct OGGContext {
     const AVClass *class;
     OGGPageList *page_list;
+#if LIBAVFORMAT_VERSION_MAJOR < 63
     int pref_size; ///< preferred page size (0 => fill all segments)
+#endif
     int64_t pref_duration;      ///< preferred page duration (0 => fill all segments)
     int serial_offset;
 } OGGContext;
@@ -87,10 +89,12 @@ typedef struct OGGContext {
 static const AVOption options[] = {
     { "serial_offset", "serial number offset",
         OFFSET(serial_offset), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, PARAM },
+#if LIBAVFORMAT_VERSION_MAJOR < 63
     { "oggpagesize", "Set preferred Ogg page size.",
-      OFFSET(pref_size), AV_OPT_TYPE_INT, {.i64 = 0}, 0, MAX_PAGE_SIZE, PARAM},
-    { "pagesize", "preferred page size in bytes (deprecated)",
-        OFFSET(pref_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, MAX_PAGE_SIZE, PARAM },
+      OFFSET(pref_size), AV_OPT_TYPE_INT, {.i64 = 0}, 0, MAX_PAGE_SIZE, PARAM | AV_OPT_FLAG_DEPRECATED },
+    { "pagesize", "preferred page size in bytes",
+        OFFSET(pref_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, MAX_PAGE_SIZE, PARAM | AV_OPT_FLAG_DEPRECATED },
+#endif
     { "page_duration", "preferred page duration, in microseconds",
         OFFSET(pref_duration), AV_OPT_TYPE_INT64, { .i64 = 1000000 }, 0, INT64_MAX, PARAM },
     { NULL },
@@ -262,8 +266,12 @@ static int ogg_buffer_data(AVFormatContext *s, AVStream *st,
             if (page->segments_count == 255) {
                 ogg_buffer_page(s, oggstream);
             } else if (!header) {
+#if LIBAVFORMAT_VERSION_MAJOR < 63
                 if ((ogg->pref_size     > 0 && page->size   >= ogg->pref_size) ||
                     (ogg->pref_duration > 0 && next - start >= ogg->pref_duration)) {
+#else
+                if (ogg->pref_duration > 0 && next - start >= ogg->pref_duration) {
+#endif
                     ogg_buffer_page(s, oggstream);
                 }
             }
@@ -287,7 +295,10 @@ static uint8_t *ogg_write_vorbiscomment(int64_t offset, int bitexact,
 
     ff_metadata_conv(m, ff_vorbiscomment_metadata_conv, NULL);
 
-    size = offset + ff_vorbiscomment_length(*m, vendor, chapters, nb_chapters) + framing_bit;
+    size = ff_vorbiscomment_length(*m, vendor, chapters, nb_chapters);
+    if (size < 0)
+        return NULL;
+    size += offset + framing_bit;
     if (size > INT_MAX)
         return NULL;
     p = av_mallocz(size);
@@ -476,9 +487,6 @@ static int ogg_init(AVFormatContext *s)
     OGGContext *ogg = s->priv_data;
     OGGStreamContext *oggstream = NULL;
     int i, j;
-
-    if (ogg->pref_size)
-        av_log(s, AV_LOG_WARNING, "The pagesize option is deprecated\n");
 
     for (i = 0; i < s->nb_streams; i++) {
         AVStream *st = s->streams[i];
@@ -773,11 +781,7 @@ const FFOutputFormat ff_ogg_muxer = {
     .write_packet      = ogg_write_packet,
     .write_trailer     = ogg_write_trailer,
     .deinit            = ogg_free,
-#if FF_API_ALLOW_FLUSH
-    .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_TS_NONSTRICT | AVFMT_ALLOW_FLUSH,
-#else
     .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_TS_NONSTRICT,
-#endif
     .p.priv_class      = &ogg_muxer_class,
     .flags_internal    = FF_OFMT_FLAG_ALLOW_FLUSH,
 };
@@ -796,11 +800,7 @@ const FFOutputFormat ff_oga_muxer = {
     .write_packet      = ogg_write_packet,
     .write_trailer     = ogg_write_trailer,
     .deinit            = ogg_free,
-#if FF_API_ALLOW_FLUSH
-    .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_ALLOW_FLUSH,
-#else
     .p.flags           = AVFMT_TS_NEGATIVE,
-#endif
     .p.priv_class      = &ogg_muxer_class,
     .flags_internal    = FF_OFMT_FLAG_ALLOW_FLUSH,
 };
@@ -822,11 +822,7 @@ const FFOutputFormat ff_ogv_muxer = {
     .write_packet      = ogg_write_packet,
     .write_trailer     = ogg_write_trailer,
     .deinit            = ogg_free,
-#if FF_API_ALLOW_FLUSH
-    .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_TS_NONSTRICT | AVFMT_ALLOW_FLUSH,
-#else
     .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_TS_NONSTRICT,
-#endif
     .p.priv_class      = &ogg_muxer_class,
     .flags_internal    = FF_OFMT_FLAG_ALLOW_FLUSH,
 };
@@ -845,11 +841,7 @@ const FFOutputFormat ff_spx_muxer = {
     .write_packet      = ogg_write_packet,
     .write_trailer     = ogg_write_trailer,
     .deinit            = ogg_free,
-#if FF_API_ALLOW_FLUSH
-    .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_ALLOW_FLUSH,
-#else
     .p.flags           = AVFMT_TS_NEGATIVE,
-#endif
     .p.priv_class      = &ogg_muxer_class,
     .flags_internal    = FF_OFMT_FLAG_ALLOW_FLUSH,
 };
@@ -868,11 +860,7 @@ const FFOutputFormat ff_opus_muxer = {
     .write_packet      = ogg_write_packet,
     .write_trailer     = ogg_write_trailer,
     .deinit            = ogg_free,
-#if FF_API_ALLOW_FLUSH
-    .p.flags           = AVFMT_TS_NEGATIVE | AVFMT_ALLOW_FLUSH,
-#else
     .p.flags           = AVFMT_TS_NEGATIVE,
-#endif
     .p.priv_class      = &ogg_muxer_class,
     .flags_internal    = FF_OFMT_FLAG_ALLOW_FLUSH,
 };

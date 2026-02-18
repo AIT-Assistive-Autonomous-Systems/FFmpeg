@@ -51,6 +51,7 @@ HEADERS = adler32.h                                                     \
           hwcontext_qsv.h                                               \
           hwcontext_mediacodec.h                                        \
           hwcontext_opencl.h                                            \
+          hwcontext_oh.h                                                \
           hwcontext_vaapi.h                                             \
           hwcontext_videotoolbox.h                                      \
           hwcontext_vdpau.h                                             \
@@ -85,6 +86,7 @@ HEADERS = adler32.h                                                     \
           sha512.h                                                      \
           spherical.h                                                   \
           stereo3d.h                                                    \
+          tdrdi.h                                                       \
           threadmessage.h                                               \
           time.h                                                        \
           timecode.h                                                    \
@@ -139,6 +141,7 @@ OBJS = adler32.o                                                        \
        file.o                                                           \
        file_open.o                                                      \
        float_dsp.o                                                      \
+       float_scalarproduct.o                                            \
        film_grain_params.o                                              \
        fixed_dsp.o                                                      \
        frame.o                                                          \
@@ -178,6 +181,7 @@ OBJS = adler32.o                                                        \
        slicethread.o                                                    \
        spherical.o                                                      \
        stereo3d.o                                                       \
+       tdrdi.o                                                          \
        threadmessage.o                                                  \
        time.o                                                           \
        timecode.o                                                       \
@@ -207,6 +211,7 @@ OBJS-$(CONFIG_AMF)                      += hwcontext_amf.o
 OBJS-$(CONFIG_LIBDRM)                   += hwcontext_drm.o
 OBJS-$(CONFIG_MACOS_KPERF)              += macos_kperf.o
 OBJS-$(CONFIG_MEDIACODEC)               += hwcontext_mediacodec.o
+OBJS-$(CONFIG_OHCODEC)                  += hwcontext_oh.o
 OBJS-$(CONFIG_OPENCL)                   += hwcontext_opencl.o
 OBJS-$(CONFIG_QSV)                      += hwcontext_qsv.o
 OBJS-$(CONFIG_VAAPI)                    += hwcontext_vaapi.o
@@ -218,10 +223,18 @@ OBJS-$(!CONFIG_VULKAN)                  += hwcontext_stub.o
 
 OBJS += $(COMPAT_OBJS:%=../compat/%)
 
+# Object files to satisfy dependencies of other libraries for static builds
+STLIBOBJS-$(CONFIG_EXR_DECODER)         += half2float.o float2half.o
+STLIBOBJS-$(CONFIG_EXR_ENCODER)         += float2half.o
+STLIBOBJS-$(CONFIG_PHM_DECODER)         += half2float.o
+STLIBOBJS-$(CONFIG_PHM_ENCODER)         += float2half.o
+STLIBOBJS-$(CONFIG_SWSCALE)             += half2float.o
+
 # Windows resource file
 SHLIBOBJS-$(HAVE_GNU_WINDRES)           += avutilres.o
 
 SKIPHEADERS                            += objc.h
+SKIPHEADERS-$(CONFIG_ZLIB)             += zlib_utils.h
 SKIPHEADERS-$(HAVE_CUDA_H)             += hwcontext_cuda.h
 SKIPHEADERS-$(CONFIG_CUDA)             += hwcontext_cuda_internal.h     \
                                           cuda_check.h
@@ -240,6 +253,7 @@ SKIPHEADERS-$(CONFIG_VULKAN)           += hwcontext_vulkan.h vulkan.h   \
                                           vulkan_loader.h
 SKIPHEADERS-$(CONFIG_LIBSHADERC)       += vulkan_spirv.h
 SKIPHEADERS-$(CONFIG_LIBGLSLANG)       += vulkan_spirv.h
+SKIPHEADERS-$(CONFIG_SHADER_COMPRESSION) += zlib_utils.h
 
 TESTPROGS = adler32                                                     \
             aes                                                         \

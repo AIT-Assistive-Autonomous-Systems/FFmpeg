@@ -25,6 +25,7 @@
 #include "libavutil/mem.h"
 #include "libavutil/time.h"
 #include "decode.h"
+#include "decode_bsf.h"
 #include "libavutil/mastering_display_metadata.h"
 
 #if CONFIG_D3D11VA
@@ -42,14 +43,6 @@
 #endif
 //will be in public headers soon
 #define AMF_VIDEO_DECODER_OUTPUT_FORMAT                L"OutputDecodeFormat"
-
-const enum AVPixelFormat amf_dec_pix_fmts[] = {
-    AV_PIX_FMT_NV12,
-    AV_PIX_FMT_P010,
-    AV_PIX_FMT_P012,
-    AV_PIX_FMT_AMF_SURFACE,
-    AV_PIX_FMT_NONE
-};
 
 static const AVCodecHWConfigInternal *const amf_hw_configs[] = {
     &(const AVCodecHWConfigInternal) {
@@ -89,6 +82,9 @@ static int amf_init_decoder(AVCodecContext *avctx)
     AMFBuffer               *buffer;
     amf_int64               color_profile;
     int                     pool_size = 36;
+    // way-around for older drivers that don't support dynamic bitness detection -
+    // define HEVC and VP9 10-bit based on container info
+    int                     no_bitness_detect = amf_legacy_driver_no_bitness_detect(amf_device_ctx);
 
     ctx->drain = 0;
     ctx->resolution_changed = 0;
@@ -99,13 +95,17 @@ static int amf_init_decoder(AVCodecContext *avctx)
             break;
         case AV_CODEC_ID_HEVC: {
             codec_id = AMFVideoDecoderHW_H265_HEVC;
-            // way-around for older drivers that don't support dynamic butness detection -
-            // define HEVC 10-bit based on container info
-            if(amf_legacy_driver_no_bitness_detect(amf_device_ctx)){
+            if(no_bitness_detect){
                 if(avctx->pix_fmt == AV_PIX_FMT_YUV420P10)
                     codec_id = AMFVideoDecoderHW_H265_MAIN10;
             }
-
+        } break;
+        case AV_CODEC_ID_VP9: {
+            codec_id = AMFVideoDecoderHW_VP9;
+            if(no_bitness_detect){
+                if(avctx->pix_fmt == AV_PIX_FMT_YUV420P10)
+                    codec_id = AMFVideoDecoderHW_VP9_10BIT;
+            }
         } break;
         case AV_CODEC_ID_AV1:
             codec_id = AMFVideoDecoderHW_AV1;
@@ -187,9 +187,12 @@ static int amf_init_decoder(AVCodecContext *avctx)
         AMF_ASSIGN_PROPERTY_INT64(res, ctx->decoder, AMF_VIDEO_DECODER_SURFACE_COPY, ctx->copy_output);
 
     if (avctx->extradata_size) {
-        res = amf_device_ctx->context->pVtbl->AllocBuffer(amf_device_ctx->context, AMF_MEMORY_HOST, avctx->extradata_size, &buffer);
+        const uint8_t *extradata;
+        int extradata_size;
+        ff_decode_get_extradata(avctx, &extradata, &extradata_size);
+        res = amf_device_ctx->context->pVtbl->AllocBuffer(amf_device_ctx->context, AMF_MEMORY_HOST, extradata_size, &buffer);
         if (res == AMF_OK) {
-            memcpy(buffer->pVtbl->GetNative(buffer), avctx->extradata, avctx->extradata_size);
+            memcpy(buffer->pVtbl->GetNative(buffer), extradata, extradata_size);
             AMF_ASSIGN_PROPERTY_INTERFACE(res,ctx->decoder, AMF_VIDEO_DECODER_EXTRADATA, buffer);
             buffer->pVtbl->Release(buffer);
             buffer = NULL;
@@ -271,15 +274,16 @@ static int amf_decode_init(AVCodecContext *avctx)
     if (!ctx->in_pkt)
         return AVERROR(ENOMEM);
 
-    if  (avctx->hw_device_ctx && !avctx->hw_frames_ctx) {
+    if  (avctx->hw_device_ctx) {
         AVHWDeviceContext   *hwdev_ctx;
         hwdev_ctx = (AVHWDeviceContext*)avctx->hw_device_ctx->data;
         if (hwdev_ctx->type == AV_HWDEVICE_TYPE_AMF)
         {
             ctx->device_ctx_ref = av_buffer_ref(avctx->hw_device_ctx);
-            avctx->hw_frames_ctx = av_hwframe_ctx_alloc(avctx->hw_device_ctx);
-
-            AMF_GOTO_FAIL_IF_FALSE(avctx, !!avctx->hw_frames_ctx, AVERROR(ENOMEM), "av_hwframe_ctx_alloc failed\n");
+            if (!avctx->hw_frames_ctx) {
+                avctx->hw_frames_ctx = av_hwframe_ctx_alloc(avctx->hw_device_ctx);
+                AMF_GOTO_FAIL_IF_FALSE(avctx, !!avctx->hw_frames_ctx, AVERROR(ENOMEM), "av_hwframe_ctx_alloc failed\n");
+            }
         } else {
             ret = av_hwdevice_ctx_create_derived(&ctx->device_ctx_ref, AV_HWDEVICE_TYPE_AMF, avctx->hw_device_ctx, 0);
             AMF_GOTO_FAIL_IF_FALSE(avctx, ret == 0, ret, "Failed to create derived AMF device context: %s\n", av_err2str(ret));
@@ -636,16 +640,16 @@ static int amf_decode_frame(AVCodecContext *avctx, struct AVFrame *frame)
                 return AVERROR(EINVAL);
             }
             res = ctx->decoder->pVtbl->GetProperty(ctx->decoder, AMF_VIDEO_DECODER_OUTPUT_FORMAT, &format_var);
-            if (res == AMF_OK) {
-                res = amf_init_frames_context(avctx, av_amf_to_av_format(format_var.int64Value), avctx->coded_width, avctx->coded_height);
-            }
-
-            if (res < 0)
+            if (res != AMF_OK) {
                 return AVERROR(EINVAL);
+            }
+            int ret = amf_init_frames_context(avctx, av_amf_to_av_format(format_var.int64Value), avctx->coded_width, avctx->coded_height);
+            if (ret < 0)
+                return ret;
         }else
             return AVERROR_EOF;
     } else {
-        av_log(avctx, AV_LOG_ERROR, "Unkown result from QueryOutput %d\n", res);
+        av_log(avctx, AV_LOG_ERROR, "Unknown result from QueryOutput %d\n", res);
     }
     return got_frame ? 0 : AVERROR(EAGAIN);
 }
@@ -705,7 +709,6 @@ const FFCodec ff_##x##_amf_decoder = { \
     .bsfs           = bsf_name, \
     .p.capabilities = AV_CODEC_CAP_HARDWARE | AV_CODEC_CAP_DELAY | AV_CODEC_CAP_AVOID_PROBING, \
     .p.priv_class   = &amf_decode_class, \
-    CODEC_PIXFMTS_ARRAY(amf_dec_pix_fmts), \
     .hw_configs     = amf_hw_configs, \
     .p.wrapper_name = "amf", \
     .caps_internal  = FF_CODEC_CAP_NOT_INIT_THREADSAFE, \
@@ -713,4 +716,5 @@ const FFCodec ff_##x##_amf_decoder = { \
 
 DEFINE_AMF_DECODER(h264, H264, "h264_mp4toannexb")
 DEFINE_AMF_DECODER(hevc, HEVC, NULL)
+DEFINE_AMF_DECODER(vp9, VP9, NULL)
 DEFINE_AMF_DECODER(av1, AV1, NULL)

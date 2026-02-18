@@ -317,7 +317,7 @@ static int config_input(AVFilterLink *inlink)
         s->dsp.filter_scale        = filter16_scale;
     }
 
-#if ARCH_X86
+#if ARCH_X86 && HAVE_X86ASM
     ff_w3fdif_init_x86(&s->dsp, depth);
 #endif
 
@@ -488,11 +488,6 @@ static int filter(AVFilterContext *ctx, int is_second)
     if (!out)
         return AVERROR(ENOMEM);
     av_frame_copy_props(out, s->cur);
-#if FF_API_INTERLACED_FRAME
-FF_DISABLE_DEPRECATION_WARNINGS
-    out->interlaced_frame = 0;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     out->flags &= ~AV_FRAME_FLAG_INTERLACED;
 
     if (!is_second) {
