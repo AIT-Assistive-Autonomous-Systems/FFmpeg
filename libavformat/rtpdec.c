@@ -634,10 +634,10 @@ static void finalize_packet(RTPDemuxContext *s, AVPacket *pkt, uint32_t timestam
     pkt->timestamp = timestamp;
 
     /* export private data (timestamps) into AVPacket */
-    if (s->last_rtcp_ntp_time != AV_NOPTS_VALUE && s->last_rtcp_timestamp) {
+    if (s->last_sr.ntp_timestamp != AV_NOPTS_VALUE && s->last_sr.rtp_timestamp) {
         synced = true;
-        pkt->last_rtcp_ntp_time = s->last_rtcp_ntp_time;
-        pkt->last_rtcp_timestamp = s->last_rtcp_timestamp;
+        pkt->last_rtcp_ntp_time = s->last_sr.ntp_timestamp;
+        pkt->last_rtcp_timestamp = s->last_sr.rtp_timestamp;
     }
     else {
         pkt->last_rtcp_ntp_time = 0;
